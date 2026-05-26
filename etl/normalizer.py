@@ -102,6 +102,7 @@ def normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
     """
     Normalize column names of a DataFrame using the alias map.
     Unknown columns are kept with cleaned names.
+    Columns that resolve to empty strings or start with 'unnamed' are dropped.
     """
     new_columns = {}
     for col in df.columns:
@@ -110,6 +111,14 @@ def normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
         new_columns[col] = canonical
 
     df = df.rename(columns=new_columns)
+
+    # Drop columns with empty names or generic 'unnamed_*' names
+    cols_to_drop = [
+        c for c in df.columns
+        if not c or c.startswith("unnamed")
+    ]
+    if cols_to_drop:
+        df = df.drop(columns=cols_to_drop)
 
     # Deduplicate column names by appending a suffix
     seen: dict[str, int] = {}
