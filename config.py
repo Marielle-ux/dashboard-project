@@ -27,17 +27,31 @@ def _get_secret(key: str, default: str = "") -> str:
         return default
 
 
+def _parse_account_ids() -> list[str]:
+    """Parse comma-separated ad account IDs from env."""
+    raw = _get_secret("META_AD_ACCOUNT_IDS")
+    if not raw:
+        single = _get_secret("META_AD_ACCOUNT_ID")
+        return [single] if single else []
+    return [aid.strip() for aid in raw.split(",") if aid.strip()]
+
+
 @dataclass
 class MetaAdsConfig:
     app_id: str = field(default_factory=lambda: _get_secret("META_APP_ID"))
     app_secret: str = field(default_factory=lambda: _get_secret("META_APP_SECRET"))
     access_token: str = field(default_factory=lambda: _get_secret("META_ACCESS_TOKEN"))
-    ad_account_id: str = field(default_factory=lambda: _get_secret("META_AD_ACCOUNT_ID"))
+    ad_account_ids: list[str] = field(default_factory=_parse_account_ids)
     api_version: str = field(default_factory=lambda: _get_secret("META_API_VERSION", "v21.0"))
 
     @property
+    def ad_account_id(self) -> str:
+        """Backward-compatible: return first account ID."""
+        return self.ad_account_ids[0] if self.ad_account_ids else ""
+
+    @property
     def is_configured(self) -> bool:
-        return bool(self.access_token and self.ad_account_id)
+        return bool(self.access_token and self.ad_account_ids)
 
 
 @dataclass

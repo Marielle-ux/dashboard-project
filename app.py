@@ -23,7 +23,7 @@ from etl.normalizer import (
 )
 from etl.cleaner import clean_dataframe, remove_duplicates
 from etl.merger import concat_datasets, merge_datasets
-from etl.meta_ads import fetch_campaign_insights
+from etl.meta_ads import fetch_campaign_insights, check_account_status
 from etl.pipeline import load_cached_data, run_pipeline
 
 # Persistent directory for uploaded files (survives restarts)
@@ -69,7 +69,11 @@ use_meta = st.sidebar.checkbox(
 )
 if not settings.meta_ads.is_configured:
     st.sidebar.caption(
-        "Set META_ACCESS_TOKEN and META_AD_ACCOUNT_ID in .env to enable."
+        "Set META_ACCESS_TOKEN and META_AD_ACCOUNT_IDS in .env to enable."
+    )
+elif settings.meta_ads.ad_account_ids:
+    st.sidebar.caption(
+        f"{len(settings.meta_ads.ad_account_ids)} ad account(s) configured"
     )
 
 # Google Sheets
@@ -212,38 +216,21 @@ if run_sync or "unified_data" not in st.session_state:
 df = st.session_state.get("unified_data", pd.DataFrame())
 
 # ---------------------------------------------------------------------------
-# Connection status — live validation
+# Connection status — live validation (multi-account)
 # ---------------------------------------------------------------------------
-def _check_meta_status() -> tuple[str, str | None]:
-    """Return (status_label, detail_or_none)."""
+def _check_all_meta_accounts() -> list[tuple[str, str, str]]:
+    """Return [(account_id, status, detail), ...] for each configured account."""
     cfg = settings.meta_ads
     if not cfg.access_token:
-        return "No token", "Set META_ACCESS_TOKEN in .env"
-    if not cfg.ad_account_id:
-        return "No account ID", "Set META_AD_ACCOUNT_ID in .env"
-    try:
-        account_id = cfg.ad_account_id
-        if not account_id.startswith("act_"):
-            account_id = f"act_{account_id}"
-        r = requests.get(
-            f"https://graph.facebook.com/{cfg.api_version}/{account_id}",
-            params={"access_token": cfg.access_token, "fields": "name,account_status"},
-            timeout=15,
-        )
-        data = r.json()
-        if "error" in data:
-            err = data["error"]
-            code = err.get("code", 0)
-            if code == 190:
-                return "Token invalid", err.get("message", "")
-            if code == 10 or code == 200:
-                return "Permission missing", err.get("message", "")
-            if code == 100:
-                return "Account inaccessible", err.get("message", "")
-            return "API error", err.get("message", "")
-        return "Connected", data.get("name", "")
-    except requests.RequestException as exc:
-        return "Connection error", str(exc)
+        return [("", "No token", "Set META_ACCESS_TOKEN in .env")]
+    if not cfg.ad_account_ids:
+        return [("", "No accounts", "Set META_AD_ACCOUNT_IDS in .env")]
+    results: list[tuple[str, str, str]] = []
+    for aid in cfg.ad_account_ids:
+        status, detail = check_account_status(aid)
+        results.append((aid, status, detail))
+        logger.info("Meta Ads %s: %s (%s)", aid, status, detail)
+    return results
 
 
 def _check_gsheets_status() -> str:
@@ -255,25 +242,30 @@ def _check_gsheets_status() -> str:
     return "Not configured"
 
 
-meta_status, meta_detail = _check_meta_status()
+account_statuses = _check_all_meta_accounts()
 gsheets_status = _check_gsheets_status()
 
-logger.info("Meta Ads status: %s (%s)", meta_status, meta_detail)
-logger.info("Google Sheets status: %s", gsheets_status)
+connected_count = sum(1 for _, s, _ in account_statuses if s == "Connected")
+total_accounts = len(settings.meta_ads.ad_account_ids)
+
+meta_rows = len(df[df["source"] == "meta_ads"]) if "source" in df.columns and not df.empty else 0
 
 col1, col2, col3 = st.columns(3)
 with col1:
-    st.metric("Meta Ads API", meta_status)
-    if meta_detail and meta_status != "Connected":
-        st.caption(meta_detail)
-    elif meta_status == "Connected" and meta_detail:
-        st.caption(f"Account: {meta_detail}")
+    if total_accounts == 0:
+        st.metric("Meta Ads API", "Not configured")
+        st.caption("Set META_AD_ACCOUNT_IDS in .env")
+    else:
+        st.metric("Meta Ads API", f"{connected_count}/{total_accounts} connected")
+        for aid, status, detail in account_statuses:
+            icon = "\u2705" if status == "Connected" else "\u274c"
+            label = detail if status == "Connected" else f"{status}: {detail}"
+            st.caption(f"{icon} {aid}: {label}")
 with col2:
     st.metric("Google Sheets", gsheets_status)
     if gsheets_status == "Not configured":
         st.caption("Add google_credentials.json to enable")
 with col3:
-    meta_rows = len(df[df["source"] == "meta_ads"]) if "source" in df.columns and not df.empty else 0
     st.metric("Total rows loaded", len(df), delta=f"{meta_rows} from Meta Ads" if meta_rows else None)
 
 st.divider()
@@ -364,11 +356,26 @@ with tab_meta:
     if meta_data.empty:
         st.info("No Meta Ads data available. Configure API credentials to fetch data.")
     else:
+        # Account filter
+        if "account_name" in meta_data.columns:
+            account_names = sorted(meta_data["account_name"].dropna().unique().tolist())
+            sel_accounts = st.multiselect(
+                "Filter by Ad Account",
+                account_names,
+                default=account_names,
+                key="meta_account_filter",
+            )
+            if sel_accounts:
+                meta_data = meta_data[meta_data["account_name"].isin(sel_accounts)]
+
         # Campaign breakdown
         if "campaign_name" in meta_data.columns:
             st.markdown("#### Campaign Breakdown")
+            group_cols = ["campaign_name"]
+            if "account_name" in meta_data.columns:
+                group_cols = ["account_name", "campaign_name"]
             campaign_metrics = (
-                meta_data.groupby("campaign_name")[available_metrics]
+                meta_data.groupby(group_cols)[available_metrics]
                 .apply(lambda g: g.apply(pd.to_numeric, errors="coerce").sum())
                 .reset_index()
             )
@@ -376,11 +383,32 @@ with tab_meta:
 
             # Spend by campaign
             if "spend" in available_metrics:
+                color_col = "account_name" if "account_name" in campaign_metrics.columns else None
                 fig = px.pie(
                     campaign_metrics,
                     names="campaign_name",
                     values="spend",
+                    color=color_col,
                     title="Spend Distribution by Campaign",
+                )
+                st.plotly_chart(fig, use_container_width=True)
+
+        # By account breakdown
+        if "account_name" in meta_data.columns and len(meta_data["account_name"].unique()) > 1:
+            st.markdown("#### Spend by Ad Account")
+            account_agg = (
+                meta_data.groupby("account_name")[available_metrics]
+                .apply(lambda g: g.apply(pd.to_numeric, errors="coerce").sum())
+                .reset_index()
+            )
+            st.dataframe(account_agg, use_container_width=True)
+            if "spend" in available_metrics:
+                fig = px.bar(
+                    account_agg,
+                    x="account_name",
+                    y="spend",
+                    title="Spend by Ad Account",
+                    color="account_name",
                 )
                 st.plotly_chart(fig, use_container_width=True)
 
@@ -436,7 +464,7 @@ with tab_data:
     st.subheader("Unified Dataset")
 
     # Filters
-    filter_cols = st.columns(3)
+    filter_cols = st.columns(4)
     filtered = df.copy()
 
     with filter_cols[0]:
@@ -447,6 +475,13 @@ with tab_data:
                 filtered = filtered[filtered["source"] == sel_source]
 
     with filter_cols[1]:
+        if "account_name" in df.columns:
+            accounts = ["All"] + sorted(df["account_name"].dropna().unique().tolist())
+            sel_account = st.selectbox("Ad Account", accounts, key="raw_account")
+            if sel_account != "All":
+                filtered = filtered[filtered["account_name"] == sel_account]
+
+    with filter_cols[2]:
         if "campaign_name" in df.columns:
             campaigns = ["All"] + sorted(
                 df["campaign_name"].dropna().unique().tolist()
@@ -455,7 +490,7 @@ with tab_data:
             if sel_campaign != "All":
                 filtered = filtered[filtered["campaign_name"] == sel_campaign]
 
-    with filter_cols[2]:
+    with filter_cols[3]:
         if "city" in df.columns:
             cities = ["All"] + sorted(df["city"].dropna().unique().tolist())
             sel_city = st.selectbox("City", cities, key="raw_city")
