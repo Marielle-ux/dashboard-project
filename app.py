@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pandas as pd
 import plotly.express as px
+import requests
 import streamlit as st
 
 from config import settings, BASE_DIR
@@ -211,17 +212,69 @@ if run_sync or "unified_data" not in st.session_state:
 df = st.session_state.get("unified_data", pd.DataFrame())
 
 # ---------------------------------------------------------------------------
-# Connection status
+# Connection status — live validation
 # ---------------------------------------------------------------------------
+def _check_meta_status() -> tuple[str, str | None]:
+    """Return (status_label, detail_or_none)."""
+    cfg = settings.meta_ads
+    if not cfg.access_token:
+        return "No token", "Set META_ACCESS_TOKEN in .env"
+    if not cfg.ad_account_id:
+        return "No account ID", "Set META_AD_ACCOUNT_ID in .env"
+    try:
+        account_id = cfg.ad_account_id
+        if not account_id.startswith("act_"):
+            account_id = f"act_{account_id}"
+        r = requests.get(
+            f"https://graph.facebook.com/{cfg.api_version}/{account_id}",
+            params={"access_token": cfg.access_token, "fields": "name,account_status"},
+            timeout=15,
+        )
+        data = r.json()
+        if "error" in data:
+            err = data["error"]
+            code = err.get("code", 0)
+            if code == 190:
+                return "Token invalid", err.get("message", "")
+            if code == 10 or code == 200:
+                return "Permission missing", err.get("message", "")
+            if code == 100:
+                return "Account inaccessible", err.get("message", "")
+            return "API error", err.get("message", "")
+        return "Connected", data.get("name", "")
+    except requests.RequestException as exc:
+        return "Connection error", str(exc)
+
+
+def _check_gsheets_status() -> str:
+    cfg = settings.google_sheets
+    if cfg.is_configured:
+        return "Connected"
+    if cfg.credentials_file and cfg.credentials_file != str(BASE_DIR / "google_credentials.json"):
+        return "File not found"
+    return "Not configured"
+
+
+meta_status, meta_detail = _check_meta_status()
+gsheets_status = _check_gsheets_status()
+
+logger.info("Meta Ads status: %s (%s)", meta_status, meta_detail)
+logger.info("Google Sheets status: %s", gsheets_status)
+
 col1, col2, col3 = st.columns(3)
 with col1:
-    status = "Connected" if settings.meta_ads.is_configured else "Not configured"
-    st.metric("Meta Ads API", status)
+    st.metric("Meta Ads API", meta_status)
+    if meta_detail and meta_status != "Connected":
+        st.caption(meta_detail)
+    elif meta_status == "Connected" and meta_detail:
+        st.caption(f"Account: {meta_detail}")
 with col2:
-    status = "Connected" if settings.google_sheets.is_configured else "Not configured"
-    st.metric("Google Sheets", status)
+    st.metric("Google Sheets", gsheets_status)
+    if gsheets_status == "Not configured":
+        st.caption("Add google_credentials.json to enable")
 with col3:
-    st.metric("Total rows loaded", len(df))
+    meta_rows = len(df[df["source"] == "meta_ads"]) if "source" in df.columns and not df.empty else 0
+    st.metric("Total rows loaded", len(df), delta=f"{meta_rows} from Meta Ads" if meta_rows else None)
 
 st.divider()
 

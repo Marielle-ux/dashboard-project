@@ -53,11 +53,16 @@ def _parse_conversions(actions: list[dict] | None) -> int:
         "purchase",
         "add_to_cart",
         "initiate_checkout",
+        "onsite_conversion.messaging_first_reply",
+        "onsite_conversion.messaging_conversation_started_7d",
+        "onsite_conversion.total_messaging_connection",
     }
     total = 0
     for action in actions:
         action_type = action.get("action_type", "")
-        if any(ct in action_type for ct in conversion_types):
+        if action_type in conversion_types or any(
+            ct in action_type for ct in {"offsite_conversion", "lead", "purchase"}
+        ):
             total += int(action.get("value", 0))
     return total
 
@@ -110,19 +115,32 @@ def fetch_campaign_insights(
     }
 
     all_rows: list[dict] = []
-    while url:
-        resp = requests.get(url, params=params, timeout=60)
-        resp.raise_for_status()
-        payload = resp.json()
-        all_rows.extend(payload.get("data", []))
-        paging = payload.get("paging", {})
-        url = paging.get("next")
-        params = {}
+    try:
+        while url:
+            resp = requests.get(url, params=params, timeout=60)
+            payload = resp.json()
+            if "error" in payload:
+                err = payload["error"]
+                logger.error(
+                    "Meta Ads API error (code=%s): %s",
+                    err.get("code"),
+                    err.get("message"),
+                )
+                return _empty_meta_df()
+            resp.raise_for_status()
+            all_rows.extend(payload.get("data", []))
+            paging = payload.get("paging", {})
+            url = paging.get("next")
+            params = {}
+    except requests.RequestException as exc:
+        logger.error("Meta Ads API request failed: %s", exc)
+        return _empty_meta_df()
 
     if not all_rows:
         logger.info("No data returned from Meta Ads API")
         return _empty_meta_df()
 
+    logger.info("Fetched %d rows from Meta Ads API", len(all_rows))
     df = pd.DataFrame(all_rows)
     return _transform_insights(df)
 
