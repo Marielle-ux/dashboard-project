@@ -11,7 +11,8 @@ Unified Streamlit dashboard that merges **Meta Ads Manager** campaign data with
 - **Column normalization** – maps inconsistent names (English & Russian) to a canonical schema.
 - **Data cleaning** – handles missing values, duplicates, and type coercion.
 - **Reusable ETL pipeline** – `etl/pipeline.py` orchestrates extract → normalize → clean → merge → load.
-- **SQLite persistence** – merged results are stored locally for fast reloads.
+- **SQLite persistence** – merged results are stored in SQLite and auto-loaded on restart.
+- **Upload persistence** – uploaded files are saved to `uploads/` and automatically reloaded.
 - **Interactive visualizations** – Plotly charts with date range, source, campaign, and city filters.
 
 ## Project Structure
@@ -19,7 +20,7 @@ Unified Streamlit dashboard that merges **Meta Ads Manager** campaign data with
 ```
 dashboard-project/
 ├── app.py                  # Streamlit dashboard
-├── config.py               # Centralized settings (reads .env)
+├── config.py               # Centralized settings (reads .env / st.secrets)
 ├── create_db.py            # Original DB seed script
 ├── etl/
 │   ├── meta_ads.py         # Meta Marketing API client
@@ -31,13 +32,14 @@ dashboard-project/
 │   └── pipeline.py         # ETL orchestrator
 ├── db/
 │   └── database.py         # SQLite helpers
+├── uploads/                # Persistent storage for uploaded files
 ├── .env.example            # Template for credentials
 ├── .streamlit/
 │   └── config.toml         # Streamlit theme & server settings
 └── requirements.txt
 ```
 
-## Quick Start
+## Quick Start (Local)
 
 ```bash
 # 1. Install dependencies
@@ -51,9 +53,46 @@ cp .env.example .env
 streamlit run app.py
 ```
 
+## Deployment (Streamlit Cloud)
+
+### One-click deploy
+
+1. Push this repo to GitHub.
+2. Go to [share.streamlit.io](https://share.streamlit.io) and sign in.
+3. Click **New app** → select this repo → branch `main` → main file `app.py`.
+4. Click **Deploy**.
+
+### Secrets (optional)
+
+If you want Meta Ads or Google Sheets integration on the deployed app, add
+secrets in the Streamlit Cloud dashboard (**Settings → Secrets**):
+
+```toml
+META_ACCESS_TOKEN = "your-token"
+META_AD_ACCOUNT_ID = "act_123456789"
+META_APP_ID = ""
+META_APP_SECRET = ""
+META_API_VERSION = "v21.0"
+GOOGLE_CREDENTIALS_FILE = "google_credentials.json"
+SYNC_INTERVAL_MINUTES = "30"
+```
+
+The app works without these secrets — Meta Ads and Google Sheets sections
+will show "Not configured" and all other features (upload, city data,
+charts, filters, export) work normally.
+
+### Data persistence on Streamlit Cloud
+
+- **Uploaded files** are saved to the `uploads/` directory and automatically
+  reloaded when the app restarts.
+- **Merged data** is persisted to `dashboard.db` (SQLite) after every sync.
+- **Note:** Streamlit Cloud may reset the filesystem on redeployment. For
+  long-term persistence, consider connecting an external database.
+
 ## Configuration
 
 All credentials and settings live in environment variables (or a `.env` file).
+On Streamlit Cloud, use **Settings → Secrets** instead.
 See `.env.example` for the full list.
 
 ### Meta Ads API
@@ -61,7 +100,7 @@ See `.env.example` for the full list.
 1. Create an app at <https://developers.facebook.com/apps/>.
 2. Add the **Marketing API** product.
 3. Generate a long-lived access token with `ads_read` permission.
-4. Set `META_ACCESS_TOKEN` and `META_AD_ACCOUNT_ID` in `.env`.
+4. Set `META_ACCESS_TOKEN` and `META_AD_ACCOUNT_ID` in `.env` or Streamlit secrets.
 
 ### Google Sheets
 

@@ -5,14 +5,15 @@ Unified view of Meta Ads + Google Sheets / Excel reports.
 
 import logging
 from datetime import date, timedelta
+from pathlib import Path
 
 import pandas as pd
 import plotly.express as px
 import streamlit as st
 
-from config import settings
-from db.database import list_tables, load_dataframe
-from etl.excel_loader import load_uploaded_file
+from config import settings, BASE_DIR
+from db.database import list_tables, load_dataframe, save_dataframe
+from etl.excel_loader import load_uploaded_file, load_file
 from etl.google_sheets import load_sheet
 from etl.normalizer import (
     coerce_numeric_columns,
@@ -23,6 +24,10 @@ from etl.cleaner import clean_dataframe, remove_duplicates
 from etl.merger import concat_datasets, merge_datasets
 from etl.meta_ads import fetch_campaign_insights
 from etl.pipeline import load_cached_data, run_pipeline
+
+# Persistent directory for uploaded files (survives restarts)
+UPLOADS_DIR = BASE_DIR / "uploads"
+UPLOADS_DIR.mkdir(exist_ok=True)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -124,6 +129,32 @@ def load_city_table(table: str) -> pd.DataFrame:
     return df
 
 
+# ---------------------------------------------------------------------------
+# Helpers – persist and reload uploaded files
+# ---------------------------------------------------------------------------
+def _save_uploaded_file(uploaded_file) -> Path:
+    """Save an uploaded file to the persistent uploads/ directory."""
+    dest = UPLOADS_DIR / uploaded_file.name
+    dest.write_bytes(uploaded_file.getvalue())
+    return dest
+
+
+def _load_saved_uploads() -> list[pd.DataFrame]:
+    """Load all previously-saved uploads from disk."""
+    dfs: list[pd.DataFrame] = []
+    for fp in sorted(UPLOADS_DIR.iterdir()):
+        if fp.suffix.lower() in {".xlsx", ".xls", ".csv", ".tsv"}:
+            udf = load_file(fp)
+            if not udf.empty:
+                udf = normalize_columns(udf)
+                udf = standardize_date_column(udf)
+                udf = coerce_numeric_columns(udf)
+                if "source" not in udf.columns:
+                    udf["source"] = f"upload:{fp.name}"
+                dfs.append(udf)
+    return dfs
+
+
 # Gather all sources
 all_dfs: list[pd.DataFrame] = []
 
@@ -146,16 +177,12 @@ if run_sync or "unified_data" not in st.session_state:
                     gs_df["source"] = "google_sheets"
                 all_dfs.append(gs_df)
 
-        # Uploaded files
+        # Newly uploaded files – save to disk for persistence
         for uf in uploaded_files:
-            udf = load_uploaded_file(uf)
-            if not udf.empty:
-                udf = normalize_columns(udf)
-                udf = standardize_date_column(udf)
-                udf = coerce_numeric_columns(udf)
-                if "source" not in udf.columns:
-                    udf["source"] = f"upload:{uf.name}"
-                all_dfs.append(udf)
+            _save_uploaded_file(uf)
+
+        # Load ALL saved uploads (current + previous sessions)
+        all_dfs.extend(_load_saved_uploads())
 
         # Existing city tables
         if use_city_data:
@@ -174,6 +201,10 @@ if run_sync or "unified_data" not in st.session_state:
             unified = remove_duplicates(unified)
         else:
             unified = load_cached_data()
+
+        # Persist unified data to SQLite so it survives restarts
+        if not unified.empty:
+            save_dataframe(unified, table_name="unified_analytics")
 
         st.session_state["unified_data"] = unified
 

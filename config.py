@@ -1,6 +1,7 @@
 """
 Centralized configuration for the analytics dashboard.
-Reads credentials and settings from environment variables or .env file.
+Reads credentials and settings from environment variables, .env file,
+or Streamlit Cloud secrets (st.secrets).
 """
 
 import os
@@ -14,13 +15,25 @@ load_dotenv()
 BASE_DIR = Path(__file__).resolve().parent
 
 
+def _get_secret(key: str, default: str = "") -> str:
+    """Read a config value from env vars first, then st.secrets fallback."""
+    val = os.getenv(key)
+    if val:
+        return val
+    try:
+        import streamlit as st
+        return st.secrets.get(key, default)
+    except Exception:
+        return default
+
+
 @dataclass
 class MetaAdsConfig:
-    app_id: str = field(default_factory=lambda: os.getenv("META_APP_ID", ""))
-    app_secret: str = field(default_factory=lambda: os.getenv("META_APP_SECRET", ""))
-    access_token: str = field(default_factory=lambda: os.getenv("META_ACCESS_TOKEN", ""))
-    ad_account_id: str = field(default_factory=lambda: os.getenv("META_AD_ACCOUNT_ID", ""))
-    api_version: str = field(default_factory=lambda: os.getenv("META_API_VERSION", "v21.0"))
+    app_id: str = field(default_factory=lambda: _get_secret("META_APP_ID"))
+    app_secret: str = field(default_factory=lambda: _get_secret("META_APP_SECRET"))
+    access_token: str = field(default_factory=lambda: _get_secret("META_ACCESS_TOKEN"))
+    ad_account_id: str = field(default_factory=lambda: _get_secret("META_AD_ACCOUNT_ID"))
+    api_version: str = field(default_factory=lambda: _get_secret("META_API_VERSION", "v21.0"))
 
     @property
     def is_configured(self) -> bool:
@@ -30,7 +43,7 @@ class MetaAdsConfig:
 @dataclass
 class GoogleSheetsConfig:
     credentials_file: str = field(
-        default_factory=lambda: os.getenv(
+        default_factory=lambda: _get_secret(
             "GOOGLE_CREDENTIALS_FILE",
             str(BASE_DIR / "google_credentials.json"),
         )
@@ -50,7 +63,7 @@ class GoogleSheetsConfig:
 @dataclass
 class DatabaseConfig:
     path: str = field(
-        default_factory=lambda: os.getenv(
+        default_factory=lambda: _get_secret(
             "DATABASE_PATH", str(BASE_DIR / "dashboard.db")
         )
     )
@@ -62,7 +75,7 @@ class AppConfig:
     google_sheets: GoogleSheetsConfig = field(default_factory=GoogleSheetsConfig)
     database: DatabaseConfig = field(default_factory=DatabaseConfig)
     sync_interval_minutes: int = field(
-        default_factory=lambda: int(os.getenv("SYNC_INTERVAL_MINUTES", "30"))
+        default_factory=lambda: int(_get_secret("SYNC_INTERVAL_MINUTES", "30"))
     )
 
 
