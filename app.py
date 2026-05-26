@@ -8,7 +8,6 @@ from datetime import date, timedelta
 
 import pandas as pd
 import plotly.express as px
-import plotly.graph_objects as go
 import streamlit as st
 
 from config import settings
@@ -20,7 +19,7 @@ from etl.normalizer import (
     normalize_columns,
     standardize_date_column,
 )
-from etl.cleaner import clean_dataframe
+from etl.cleaner import clean_dataframe, remove_duplicates
 from etl.merger import concat_datasets, merge_datasets
 from etl.meta_ads import fetch_campaign_insights
 from etl.pipeline import load_cached_data, run_pipeline
@@ -165,10 +164,14 @@ if run_sync or "unified_data" not in st.session_state:
                 if not cdf.empty:
                     all_dfs.append(cdf)
 
+        # Clean each source individually (before concat) to avoid
+        # cross-schema NaN columns causing valid rows to be dropped.
+        all_dfs = [clean_dataframe(d) for d in all_dfs]
+
         # Merge
         if all_dfs:
             unified = concat_datasets(all_dfs)
-            unified = clean_dataframe(unified)
+            unified = remove_duplicates(unified)
         else:
             unified = load_cached_data()
 
