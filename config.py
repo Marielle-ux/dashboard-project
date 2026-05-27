@@ -142,7 +142,7 @@ class AppConfig:
     google_sheets: GoogleSheetsConfig = field(default_factory=GoogleSheetsConfig)
     database: DatabaseConfig = field(default_factory=DatabaseConfig)
     sync_interval_minutes: int = field(
-        default_factory=lambda: int(_get_secret("SYNC_INTERVAL_MINUTES", "30"))
+        default_factory=lambda: int(str(_get_secret("SYNC_INTERVAL_MINUTES", "15")))
     )
 
 

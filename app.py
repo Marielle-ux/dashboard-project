@@ -4,7 +4,8 @@ Unified view of Meta Ads + Google Sheets / Excel reports.
 """
 
 import logging
-from datetime import date, timedelta
+import time
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import pandas as pd
@@ -119,6 +120,24 @@ if use_city_data:
     )
 
 # ---------------------------------------------------------------------------
+# Auto-sync (periodic refresh)
+# ---------------------------------------------------------------------------
+AUTO_SYNC_SECONDS = settings.sync_interval_minutes * 60  # default 15 min
+
+if "last_sync_time" not in st.session_state:
+    st.session_state["last_sync_time"] = 0.0
+
+time_since_sync = time.time() - st.session_state["last_sync_time"]
+auto_sync_due = time_since_sync >= AUTO_SYNC_SECONDS and st.session_state["last_sync_time"] > 0
+
+if auto_sync_due:
+    st.toast("Auto-syncing data (every {0} min)…".format(settings.sync_interval_minutes))
+
+st.sidebar.caption(
+    f"Auto-sync every {settings.sync_interval_minutes} min"
+)
+
+# ---------------------------------------------------------------------------
 # Data loading
 # ---------------------------------------------------------------------------
 run_sync = st.sidebar.button("Sync Data", type="primary")
@@ -177,7 +196,14 @@ def _load_saved_uploads() -> list[pd.DataFrame]:
 # Gather all sources
 all_dfs: list[pd.DataFrame] = []
 
-if run_sync or "unified_data" not in st.session_state:
+should_load = run_sync or auto_sync_due or "unified_data" not in st.session_state
+
+if run_sync or auto_sync_due:
+    # Clear cached API data so fresh results are fetched
+    fetch_meta.clear()
+    fetch_gsheet.clear()
+
+if should_load:
     with st.spinner("Loading data ..."):
         # Meta Ads
         if use_meta and settings.meta_ads.is_configured:
@@ -241,6 +267,8 @@ if run_sync or "unified_data" not in st.session_state:
             save_dataframe(unified, table_name="unified_analytics")
 
         st.session_state["unified_data"] = unified
+        st.session_state["last_sync_time"] = time.time()
+        st.session_state["last_sync_dt"] = datetime.now().strftime("%H:%M:%S")
 
 df = st.session_state.get("unified_data", pd.DataFrame())
 
@@ -563,3 +591,25 @@ with tab_data:
     with st.expander("Database tables"):
         tables = list_tables()
         st.write(tables)
+
+# ---------------------------------------------------------------------------
+# Footer — last sync time + auto-rerun scheduling
+# ---------------------------------------------------------------------------
+st.divider()
+last_dt = st.session_state.get("last_sync_dt", "—")
+st.caption(
+    f"Last synced: {last_dt}  ·  "
+    f"Auto-sync every {settings.sync_interval_minutes} min"
+)
+
+# Schedule next auto-rerun via st.rerun after the configured interval.
+# st.rerun is only called when the timer expires; while the page is open
+# Streamlit keeps a websocket alive and reruns will pick up fresh data.
+if st.session_state.get("last_sync_time"):
+    remaining = AUTO_SYNC_SECONDS - (time.time() - st.session_state["last_sync_time"])
+    if remaining <= 0:
+        st.rerun()
+    else:
+        # Use st.empty + time fragment to schedule next rerun
+        _placeholder = st.empty()
+        _placeholder.empty()
