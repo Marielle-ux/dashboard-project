@@ -15,8 +15,12 @@ BASE_DIR = Path(__file__).resolve().parent
 load_dotenv(BASE_DIR / ".env")
 
 
-def _get_secret(key: str, default: str = "") -> str:
-    """Read a config value from env vars first, then st.secrets fallback."""
+def _get_secret(key: str, default: str = ""):
+    """Read a config value from env vars first, then st.secrets fallback.
+
+    May return a string, list, or dict depending on the TOML type used
+    in Streamlit Cloud secrets.
+    """
     val = os.getenv(key)
     if val:
         return val
@@ -28,21 +32,26 @@ def _get_secret(key: str, default: str = "") -> str:
 
 
 def _parse_comma_list(key: str, fallback_key: str = "") -> list[str]:
-    """Parse a comma-separated list from env."""
+    """Parse a list from env (comma-separated string) or st.secrets (TOML array)."""
     raw = _get_secret(key)
+    # st.secrets may return a native list for TOML arrays
+    if isinstance(raw, (list, tuple)):
+        return [str(item).strip() for item in raw if str(item).strip()]
     if not raw and fallback_key:
         single = _get_secret(fallback_key)
+        if isinstance(single, (list, tuple)):
+            return [str(item).strip() for item in single if str(item).strip()]
         return [single] if single else []
     if not raw:
         return []
-    return [item.strip() for item in raw.split(",") if item.strip()]
+    return [item.strip() for item in str(raw).split(",") if item.strip()]
 
 
 @dataclass
 class MetaAdsConfig:
-    app_id: str = field(default_factory=lambda: _get_secret("META_APP_ID"))
-    app_secret: str = field(default_factory=lambda: _get_secret("META_APP_SECRET"))
-    access_token: str = field(default_factory=lambda: _get_secret("META_ACCESS_TOKEN"))
+    app_id: str = field(default_factory=lambda: str(_get_secret("META_APP_ID") or ""))
+    app_secret: str = field(default_factory=lambda: str(_get_secret("META_APP_SECRET") or ""))
+    access_token: str = field(default_factory=lambda: str(_get_secret("META_ACCESS_TOKEN") or ""))
     ad_account_ids: list[str] = field(
         default_factory=lambda: _parse_comma_list("META_AD_ACCOUNT_IDS", "META_AD_ACCOUNT_ID")
     )
@@ -70,7 +79,7 @@ class GoogleSheetsConfig:
         default_factory=lambda: _parse_comma_list("GOOGLE_SPREADSHEET_NAMES")
     )
     header_row: int = field(
-        default_factory=lambda: int(_get_secret("GOOGLE_HEADER_ROW", "3"))
+        default_factory=lambda: int(str(_get_secret("GOOGLE_HEADER_ROW", "3")))
     )
     scopes: list[str] = field(
         default_factory=lambda: [
