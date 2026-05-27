@@ -231,6 +231,12 @@ if run_sync or "unified_data" not in st.session_state:
         else:
             unified = load_cached_data()
 
+        # Standardize date column after merge (Meta Ads returns
+        # datetime.date objects, Google Sheets returns Timestamps —
+        # concat produces mixed-type object column).
+        if "date" in unified.columns:
+            unified["date"] = pd.to_datetime(unified["date"], errors="coerce")
+
         # Persist unified data to SQLite so it survives restarts
         if not unified.empty:
             save_dataframe(unified, table_name="unified_analytics")
