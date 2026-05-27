@@ -9,7 +9,6 @@ from pathlib import Path
 
 import pandas as pd
 import plotly.express as px
-import requests
 import streamlit as st
 
 from config import settings, BASE_DIR
@@ -73,7 +72,7 @@ use_meta = st.sidebar.checkbox(
 )
 if not settings.meta_ads.is_configured:
     st.sidebar.caption(
-        "Set META_ACCESS_TOKEN and META_AD_ACCOUNT_IDS in .env to enable."
+        "Set META_ACCESS_TOKEN and META_AD_ACCOUNT_IDS in Secrets to enable."
     )
 elif settings.meta_ads.ad_account_ids:
     st.sidebar.caption(
@@ -89,7 +88,7 @@ use_gsheets = st.sidebar.checkbox(
     disabled=not gs_cfg.is_configured,
 )
 if not gs_cfg.is_configured:
-    st.sidebar.caption("Add google_credentials.json to enable.")
+    st.sidebar.caption("Add Google credentials in Secrets to enable.")
 elif gs_cfg.spreadsheet_names:
     st.sidebar.caption(
         f"{len(gs_cfg.spreadsheet_names)} spreadsheet(s) configured"
@@ -252,9 +251,9 @@ def _check_all_meta_accounts() -> list[tuple[str, str, str]]:
     """Return [(account_id, status, detail), ...] for each configured account."""
     cfg = settings.meta_ads
     if not cfg.access_token:
-        return [("", "No token", "Set META_ACCESS_TOKEN in .env")]
+        return [("", "No token", "Set META_ACCESS_TOKEN in Secrets")]
     if not cfg.ad_account_ids:
-        return [("", "No accounts", "Set META_AD_ACCOUNT_IDS in .env")]
+        return [("", "No accounts", "Set META_AD_ACCOUNT_IDS in Secrets")]
     results: list[tuple[str, str, str]] = []
     for aid in cfg.ad_account_ids:
         status, detail = check_account_status(aid)
@@ -281,7 +280,7 @@ col1, col2, col3 = st.columns(3)
 with col1:
     if total_accounts == 0:
         st.metric("Meta Ads API", "Not configured")
-        st.caption("Set META_AD_ACCOUNT_IDS in .env")
+        st.caption("Set META_AD_ACCOUNT_IDS in Secrets")
     else:
         st.metric("Meta Ads API", f"{connected_count}/{total_accounts} connected")
         for aid, status, detail in account_statuses:
