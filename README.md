@@ -53,31 +53,54 @@ cp .env.example .env
 streamlit run app.py
 ```
 
-## Deployment (Streamlit Cloud)
+## Deployment (Streamlit Community Cloud)
 
-### One-click deploy
+### Step-by-step
 
-1. Push this repo to GitHub.
-2. Go to [share.streamlit.io](https://share.streamlit.io) and sign in.
-3. Click **New app** → select this repo → branch `main` → main file `app.py`.
-4. Click **Deploy**.
+1. **Merge the PR** into `main` on GitHub.
+2. Go to [share.streamlit.io](https://share.streamlit.io) → **Sign in with GitHub**.
+3. Click **New app**.
+4. Select:
+   - **Repository:** `Marielle-ux/dashboard-project`
+   - **Branch:** `main`
+   - **Main file path:** `app.py`
+5. Click **Advanced settings** → paste your secrets (see below).
+6. Click **Deploy**.
 
-### Secrets (optional)
+The app will be live at a permanent URL like `https://your-app.streamlit.app`.
 
-If you want Meta Ads or Google Sheets integration on the deployed app, add
-secrets in the Streamlit Cloud dashboard (**Settings → Secrets**):
+### Secrets (required for full functionality)
+
+In the Streamlit Cloud dashboard, go to **Settings → Secrets** and paste:
 
 ```toml
-META_ACCESS_TOKEN = "your-token"
-META_AD_ACCOUNT_ID = "act_123456789"
-META_APP_ID = ""
-META_APP_SECRET = ""
+# Meta Ads API
+META_ACCESS_TOKEN = "EAAXn3YbFKBY..."
+META_AD_ACCOUNT_IDS = "act_844229314275496,act_719853653795521,act_2342025859327675"
 META_API_VERSION = "v21.0"
-GOOGLE_CREDENTIALS_FILE = "google_credentials.json"
-SYNC_INTERVAL_MINUTES = "30"
+
+# Google Sheets
+GOOGLE_SPREADSHEET_NAMES = "Sheet Name 1,Sheet Name 2,Sheet Name 3"
+GOOGLE_HEADER_ROW = "3"
+
+# Google Service Account credentials (paste the FULL JSON key contents)
+[google_credentials]
+type = "service_account"
+project_id = "your-project-id"
+private_key_id = "your-key-id"
+private_key = "-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
+client_email = "your-sa@your-project.iam.gserviceaccount.com"
+client_id = "123456789"
+auth_uri = "https://accounts.google.com/o/oauth2/auth"
+token_uri = "https://oauth2.googleapis.com/token"
+auth_provider_x509_cert_url = "https://www.googleapis.com/oauth2/v1/certs"
+client_x509_cert_url = "https://www.googleapis.com/robot/v1/metadata/x509/..."
+universe_domain = "googleapis.com"
 ```
 
-The app works without these secrets — Meta Ads and Google Sheets sections
+See `.streamlit/secrets.toml.example` for a complete template.
+
+The app works without secrets — Meta Ads and Google Sheets sections
 will show "Not configured" and all other features (upload, city data,
 charts, filters, export) work normally.
 

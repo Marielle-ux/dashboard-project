@@ -57,11 +57,20 @@ class ConnectionStatus:
 # Internals
 # ---------------------------------------------------------------------------
 def _get_client() -> gspread.Client:
-    """Authenticate and return a gspread client using service-account credentials."""
+    """Authenticate and return a gspread client using service-account credentials.
+
+    Supports two credential sources:
+    1. Local JSON file (``google_credentials.json``)
+    2. ``st.secrets["google_credentials"]`` dict (Streamlit Cloud)
+    """
     cfg = settings.google_sheets
-    creds = Credentials.from_service_account_file(
-        cfg.credentials_file, scopes=cfg.scopes
-    )
+    info = cfg.credentials_info
+    if info:
+        creds = Credentials.from_service_account_info(info, scopes=cfg.scopes)
+    else:
+        creds = Credentials.from_service_account_file(
+            cfg.credentials_file, scopes=cfg.scopes
+        )
     return gspread.authorize(creds)
 
 

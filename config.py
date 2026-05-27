@@ -81,18 +81,41 @@ class GoogleSheetsConfig:
 
     @property
     def is_configured(self) -> bool:
-        return Path(self.credentials_file).exists()
+        """True if credentials are available (file or st.secrets)."""
+        if Path(self.credentials_file).exists():
+            return True
+        # Check st.secrets for cloud deployment
+        try:
+            import streamlit as st
+            return "google_credentials" in st.secrets
+        except Exception:
+            return False
+
+    @property
+    def credentials_info(self) -> dict | None:
+        """Return credentials as a dict (from file or st.secrets)."""
+        import json
+        # Prefer local file
+        if Path(self.credentials_file).exists():
+            try:
+                with open(self.credentials_file) as f:
+                    return json.load(f)
+            except Exception:
+                return None
+        # Fall back to st.secrets
+        try:
+            import streamlit as st
+            if "google_credentials" in st.secrets:
+                return dict(st.secrets["google_credentials"])
+        except Exception:
+            pass
+        return None
 
     @property
     def service_account_email(self) -> str:
-        """Return the service account email from the credentials file."""
-        import json
-        try:
-            with open(self.credentials_file) as f:
-                data = json.load(f)
-            return data.get("client_email", "")
-        except Exception:
-            return ""
+        """Return the service account email from credentials."""
+        info = self.credentials_info
+        return info.get("client_email", "") if info else ""
 
 
 @dataclass
