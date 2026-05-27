@@ -15,7 +15,11 @@ import streamlit as st
 from config import settings, BASE_DIR
 from db.database import list_tables, load_dataframe, save_dataframe
 from etl.excel_loader import load_uploaded_file, load_file
-from etl.google_sheets import load_sheet
+from etl.google_sheets import (
+    check_connection_status as check_gsheets_connection,
+    load_all_configured_spreadsheets,
+    load_sheet,
+)
 from etl.normalizer import (
     coerce_numeric_columns,
     normalize_columns,
@@ -77,14 +81,25 @@ elif settings.meta_ads.ad_account_ids:
     )
 
 # Google Sheets
+gs_cfg = settings.google_sheets
+gs_has_configured_sheets = bool(gs_cfg.is_configured and gs_cfg.spreadsheet_names)
 use_gsheets = st.sidebar.checkbox(
     "Load Google Sheets",
-    value=False,
+    value=gs_has_configured_sheets,
+    disabled=not gs_cfg.is_configured,
 )
+if not gs_cfg.is_configured:
+    st.sidebar.caption("Add google_credentials.json to enable.")
+elif gs_cfg.spreadsheet_names:
+    st.sidebar.caption(
+        f"{len(gs_cfg.spreadsheet_names)} spreadsheet(s) configured"
+    )
 gsheet_name = ""
 gsheet_worksheet = ""
 if use_gsheets:
-    gsheet_name = st.sidebar.text_input("Spreadsheet name")
+    gsheet_name = st.sidebar.text_input(
+        "Additional spreadsheet name (optional)"
+    )
     gsheet_worksheet = st.sidebar.text_input("Worksheet (optional)")
 
 # File uploads
@@ -171,7 +186,16 @@ if run_sync or "unified_data" not in st.session_state:
             if not meta_df.empty:
                 all_dfs.append(meta_df)
 
-        # Google Sheets
+        # Google Sheets — auto-load configured spreadsheets
+        if use_gsheets and gs_has_configured_sheets:
+            gs_dfs = load_all_configured_spreadsheets()
+            for gs_df in gs_dfs:
+                gs_df = normalize_columns(gs_df)
+                gs_df = standardize_date_column(gs_df)
+                gs_df = coerce_numeric_columns(gs_df)
+                all_dfs.append(gs_df)
+
+        # Google Sheets — additional manually specified spreadsheet
         if use_gsheets and gsheet_name:
             gs_df = fetch_gsheet(gsheet_name, gsheet_worksheet)
             if not gs_df.empty:
@@ -233,22 +257,19 @@ def _check_all_meta_accounts() -> list[tuple[str, str, str]]:
     return results
 
 
-def _check_gsheets_status() -> str:
-    cfg = settings.google_sheets
-    if cfg.is_configured:
-        return "Connected"
-    if cfg.credentials_file and cfg.credentials_file != str(BASE_DIR / "google_credentials.json"):
-        return "File not found"
-    return "Not configured"
+def _check_gsheets_status() -> tuple[str, str]:
+    """Validate Google Sheets connectivity. Returns (status, detail)."""
+    return check_gsheets_connection()
 
 
 account_statuses = _check_all_meta_accounts()
-gsheets_status = _check_gsheets_status()
+gs_status, gs_detail = _check_gsheets_status()
 
 connected_count = sum(1 for _, s, _ in account_statuses if s == "Connected")
 total_accounts = len(settings.meta_ads.ad_account_ids)
 
 meta_rows = len(df[df["source"] == "meta_ads"]) if "source" in df.columns and not df.empty else 0
+gs_rows = len(df[df["source"] == "google_sheets"]) if "source" in df.columns and not df.empty else 0
 
 col1, col2, col3 = st.columns(3)
 with col1:
@@ -262,11 +283,24 @@ with col1:
             label = detail if status == "Connected" else f"{status}: {detail}"
             st.caption(f"{icon} {aid}: {label}")
 with col2:
-    st.metric("Google Sheets", gsheets_status)
-    if gsheets_status == "Not configured":
-        st.caption("Add google_credentials.json to enable")
+    gs_icon = "\u2705" if gs_status == "Connected" else "\u274c"
+    st.metric("Google Sheets", gs_status)
+    if gs_status == "Connected":
+        st.caption(f"{gs_icon} {gs_detail}")
+        if settings.google_sheets.spreadsheet_names:
+            st.caption(
+                f"{len(settings.google_sheets.spreadsheet_names)} spreadsheet(s) configured"
+            )
+    else:
+        st.caption(f"{gs_icon} {gs_detail}")
 with col3:
-    st.metric("Total rows loaded", len(df), delta=f"{meta_rows} from Meta Ads" if meta_rows else None)
+    delta_parts = []
+    if meta_rows:
+        delta_parts.append(f"{meta_rows} from Meta Ads")
+    if gs_rows:
+        delta_parts.append(f"{gs_rows} from Google Sheets")
+    delta_text = ", ".join(delta_parts) if delta_parts else None
+    st.metric("Total rows loaded", len(df), delta=delta_text)
 
 st.divider()
 
@@ -464,7 +498,9 @@ with tab_data:
     st.subheader("Unified Dataset")
 
     # Filters
-    filter_cols = st.columns(4)
+    has_spreadsheet = "spreadsheet_name" in df.columns
+    n_filter_cols = 5 if has_spreadsheet else 4
+    filter_cols = st.columns(n_filter_cols)
     filtered = df.copy()
 
     with filter_cols[0]:
@@ -496,6 +532,15 @@ with tab_data:
             sel_city = st.selectbox("City", cities, key="raw_city")
             if sel_city != "All":
                 filtered = filtered[filtered["city"] == sel_city]
+
+    if has_spreadsheet:
+        with filter_cols[4]:
+            sheets = ["All"] + sorted(
+                df["spreadsheet_name"].dropna().unique().tolist()
+            )
+            sel_sheet = st.selectbox("Spreadsheet", sheets, key="raw_sheet")
+            if sel_sheet != "All":
+                filtered = filtered[filtered["spreadsheet_name"] == sel_sheet]
 
     st.dataframe(filtered, use_container_width=True)
     st.caption(f"Showing {len(filtered)} of {len(df)} rows")

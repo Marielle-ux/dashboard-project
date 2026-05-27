@@ -107,7 +107,14 @@ See `.env.example` for the full list.
 1. Create a **Service Account** in Google Cloud Console.
 2. Enable the **Google Sheets API** and **Google Drive API**.
 3. Download the JSON key and place it as `google_credentials.json` (or set `GOOGLE_CREDENTIALS_FILE`).
-4. Share your spreadsheet with the service account email.
+4. Share each spreadsheet with the service account email (found in the JSON as `client_email`).
+5. Set `GOOGLE_SPREADSHEET_NAMES` in `.env` — comma-separated list of spreadsheet titles to auto-load.
+
+The dashboard validates credentials on startup and shows per-spreadsheet connection status:
+- **Connected** — credentials valid and APIs enabled
+- **API disabled** — enable Google Drive / Sheets API in Cloud Console
+- **Permission denied** — share the spreadsheet with the service account
+- **Not found** — check the spreadsheet name matches exactly
 
 ## Database Schema
 

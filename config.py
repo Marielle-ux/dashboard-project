@@ -27,13 +27,15 @@ def _get_secret(key: str, default: str = "") -> str:
         return default
 
 
-def _parse_account_ids() -> list[str]:
-    """Parse comma-separated ad account IDs from env."""
-    raw = _get_secret("META_AD_ACCOUNT_IDS")
-    if not raw:
-        single = _get_secret("META_AD_ACCOUNT_ID")
+def _parse_comma_list(key: str, fallback_key: str = "") -> list[str]:
+    """Parse a comma-separated list from env."""
+    raw = _get_secret(key)
+    if not raw and fallback_key:
+        single = _get_secret(fallback_key)
         return [single] if single else []
-    return [aid.strip() for aid in raw.split(",") if aid.strip()]
+    if not raw:
+        return []
+    return [item.strip() for item in raw.split(",") if item.strip()]
 
 
 @dataclass
@@ -41,7 +43,9 @@ class MetaAdsConfig:
     app_id: str = field(default_factory=lambda: _get_secret("META_APP_ID"))
     app_secret: str = field(default_factory=lambda: _get_secret("META_APP_SECRET"))
     access_token: str = field(default_factory=lambda: _get_secret("META_ACCESS_TOKEN"))
-    ad_account_ids: list[str] = field(default_factory=_parse_account_ids)
+    ad_account_ids: list[str] = field(
+        default_factory=lambda: _parse_comma_list("META_AD_ACCOUNT_IDS", "META_AD_ACCOUNT_ID")
+    )
     api_version: str = field(default_factory=lambda: _get_secret("META_API_VERSION", "v21.0"))
 
     @property
@@ -62,6 +66,9 @@ class GoogleSheetsConfig:
             str(BASE_DIR / "google_credentials.json"),
         )
     )
+    spreadsheet_names: list[str] = field(
+        default_factory=lambda: _parse_comma_list("GOOGLE_SPREADSHEET_NAMES")
+    )
     scopes: list[str] = field(
         default_factory=lambda: [
             "https://spreadsheets.google.com/feeds",
@@ -72,6 +79,17 @@ class GoogleSheetsConfig:
     @property
     def is_configured(self) -> bool:
         return Path(self.credentials_file).exists()
+
+    @property
+    def service_account_email(self) -> str:
+        """Return the service account email from the credentials file."""
+        import json
+        try:
+            with open(self.credentials_file) as f:
+                data = json.load(f)
+            return data.get("client_email", "")
+        except Exception:
+            return ""
 
 
 @dataclass
