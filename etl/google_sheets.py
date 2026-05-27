@@ -242,7 +242,7 @@ def load_all_configured_spreadsheets() -> list[pd.DataFrame]:
     dfs: list[pd.DataFrame] = []
     for name in cfg.spreadsheet_names:
         logger.info("Loading Google Sheet: %s", name)
-        sheet_df = load_sheet(name)
+        sheet_df = load_sheet(name, header_row=cfg.header_row)
         if not sheet_df.empty:
             sheet_df["spreadsheet_name"] = name
             if "source" not in sheet_df.columns:

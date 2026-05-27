@@ -81,6 +81,35 @@ COLUMN_ALIASES: dict[str, str] = {
     "выручка": "revenue",
     "итого": "revenue",
     "total": "revenue",
+    # Google Sheets hospitality columns
+    "выручка_день": "revenue_day",
+    "выручка_основная": "revenue_main",
+    "выручка_ночь": "revenue_night",
+    "кол_во_чеков_кабинки": "cabin_checks",
+    "кол_во_гостей_кабинки": "cabin_guests",
+    "выручка_кабинки": "cabin_revenue",
+    "предзаказ": "preorder",
+    "_от_общей_суммы": "pct_total",
+    "утро": "morning_revenue",
+    "вечер": "evening_revenue",
+    "ночь": "night_revenue",
+    "кол_во_чеков_общий_зал": "hall_checks",
+    "кол_во_гостей_общий_зал": "hall_guests",
+    "выручка_общий_зал": "hall_revenue",
+    "дневная_с_1000_до_1800": "guests_day",
+    "основная_с_1800_до_0000": "guests_evening",
+    "ночная_с_0000_до_0500": "guests_night",
+    "др": "event_birthday",
+    "девичник": "event_bachelorette",
+    "тдр": "event_tdr",
+    "гендерпати": "event_gender_party",
+    "гап": "event_gap",
+    "автепати": "event_auto_party",
+    "официанты": "waiters",
+    "отдел_бронирования": "booking_dept",
+    "спец_предложения": "special_offers",
+    "кабинки": "cabins",
+    "как_узнали_о_нас": "lead_source",
 }
 
 
@@ -147,6 +176,20 @@ def standardize_date_column(df: pd.DataFrame, col: str = "date") -> pd.DataFrame
     return df
 
 
+def _clean_numeric_string(series: pd.Series) -> pd.Series:
+    """Strip non-breaking spaces, regular spaces used as thousand separators,
+    and replace comma decimal separators before numeric coercion."""
+    cleaned = series.astype(str)
+    # Remove non-breaking spaces (\xa0) and regular spaces used as grouping
+    cleaned = cleaned.str.replace("\xa0", "", regex=False)
+    cleaned = cleaned.str.replace(" ", "", regex=False)
+    # Remove percentage signs
+    cleaned = cleaned.str.replace("%", "", regex=False)
+    # Replace comma decimal separator with dot
+    cleaned = cleaned.str.replace(",", ".", regex=False)
+    return cleaned
+
+
 def coerce_numeric_columns(
     df: pd.DataFrame,
     columns: list[str] | None = None,
@@ -154,6 +197,7 @@ def coerce_numeric_columns(
     """
     Convert specified columns to numeric types, coercing errors to NaN.
     If *columns* is None, attempts to convert all standard metric columns.
+    Handles non-breaking spaces, comma decimals, and percentage signs.
     """
     metric_cols = columns or [
         "spend",
@@ -164,8 +208,27 @@ def coerce_numeric_columns(
         "clicks",
         "conversions",
         "revenue",
+        "revenue_day",
+        "revenue_main",
+        "revenue_night",
+        "cabin_checks",
+        "cabin_guests",
+        "cabin_revenue",
+        "preorder",
+        "pct_total",
+        "morning_revenue",
+        "evening_revenue",
+        "night_revenue",
+        "hall_checks",
+        "hall_guests",
+        "hall_revenue",
+        "guests_day",
+        "guests_evening",
+        "guests_night",
     ]
     for col in metric_cols:
         if col in df.columns:
-            df[col] = pd.to_numeric(df[col], errors="coerce")
+            df[col] = pd.to_numeric(
+                _clean_numeric_string(df[col]), errors="coerce"
+            )
     return df

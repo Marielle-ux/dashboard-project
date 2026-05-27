@@ -69,6 +69,9 @@ class GoogleSheetsConfig:
     spreadsheet_names: list[str] = field(
         default_factory=lambda: _parse_comma_list("GOOGLE_SPREADSHEET_NAMES")
     )
+    header_row: int = field(
+        default_factory=lambda: int(_get_secret("GOOGLE_HEADER_ROW", "3"))
+    )
     scopes: list[str] = field(
         default_factory=lambda: [
             "https://spreadsheets.google.com/feeds",
