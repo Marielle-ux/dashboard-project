@@ -79,6 +79,10 @@ the TOML below. The app reads everything via `st.secrets`.
 META_ACCESS_TOKEN = "EAAXn3YbFKBY..."
 META_API_VERSION = "v21.0"
 
+# Optional — only needed if you want to refresh long-lived tokens.
+# META_APP_ID = "1234567890"
+# META_APP_SECRET = "abcdef0123456789abcdef0123456789"
+
 # Ad account IDs — TOML array (Streamlit native list format)
 META_AD_ACCOUNT_IDS = [
   "act_844229314275496",

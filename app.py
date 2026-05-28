@@ -78,6 +78,8 @@ def _render_config_debug() -> None:
             {
                 "META_ACCESS_TOKEN loaded": meta["META_ACCESS_TOKEN"],
                 "META_AD_ACCOUNT_IDS loaded": meta["META_AD_ACCOUNT_IDS"],
+                "META_APP_ID loaded": meta["META_APP_ID"],
+                "META_APP_SECRET loaded": meta["META_APP_SECRET"],
                 "configured": meta["configured"],
             }
         )

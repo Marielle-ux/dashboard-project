@@ -66,6 +66,19 @@ def _get_secret(key: str, default: str = "") -> Any:
     return default
 
 
+def _get_first_secret(keys: list[str], default: str = "") -> Any:
+    """Return the first non-empty secret found across *keys* (in order).
+
+    Useful when a single config value is exposed under multiple names
+    (e.g. ``META_APP_SECRET`` and the legacy ``ads_manager_secret``).
+    """
+    for k in keys:
+        val = _get_secret(k)
+        if val is not None and val != "":
+            return val
+    return default
+
+
 def _secret_contains(key: str) -> bool:
     """Return True if ``key`` is present (and non-empty) in st.secrets."""
     secrets = _safe_st_secrets()
@@ -109,7 +122,11 @@ _parse_comma_list = _parse_list
 @dataclass
 class MetaAdsConfig:
     app_id: str = field(default_factory=lambda: str(_get_secret("META_APP_ID") or ""))
-    app_secret: str = field(default_factory=lambda: str(_get_secret("META_APP_SECRET") or ""))
+    app_secret: str = field(
+        default_factory=lambda: str(
+            _get_first_secret(["META_APP_SECRET", "ads_manager_secret"]) or ""
+        )
+    )
     access_token: str = field(default_factory=lambda: str(_get_secret("META_ACCESS_TOKEN") or ""))
     ad_account_ids: list[str] = field(
         default_factory=lambda: _parse_list("META_AD_ACCOUNT_IDS", "META_AD_ACCOUNT_ID")
@@ -130,6 +147,8 @@ class MetaAdsConfig:
         return {
             "META_ACCESS_TOKEN": bool(self.access_token),
             "META_AD_ACCOUNT_IDS": bool(self.ad_account_ids),
+            "META_APP_SECRET": bool(self.app_secret),
+            "META_APP_ID": bool(self.app_id),
             "configured": self.is_configured,
         }
 
