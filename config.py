@@ -4,6 +4,7 @@ Reads credentials and settings from environment variables, .env file,
 or Streamlit Cloud secrets (st.secrets).
 """
 
+import json
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -107,34 +108,63 @@ class GoogleSheetsConfig:
 
     @property
     def is_configured(self) -> bool:
-        """True if credentials are available (file or st.secrets)."""
+        """True if credentials are available (file, JSON string, or TOML section)."""
         if Path(self.credentials_file).exists():
             return True
-        # Check st.secrets for cloud deployment
         try:
             import streamlit as st
-            return "google_credentials" in st.secrets
+            # GOOGLE_CREDENTIALS_JSON as a flat JSON string
+            if st.secrets.get("GOOGLE_CREDENTIALS_JSON"):
+                return True
+            # [google_credentials] TOML section
+            if "google_credentials" in st.secrets:
+                return True
         except Exception:
-            return False
+            pass
+        # Also check env var
+        if os.getenv("GOOGLE_CREDENTIALS_JSON"):
+            return True
+        return False
 
     @property
     def credentials_info(self) -> dict | None:
-        """Return credentials as a dict (from file or st.secrets)."""
-        import json
-        # Prefer local file
-        if Path(self.credentials_file).exists():
+        """Return credentials as a dict.
+
+        Sources (in priority order):
+        1. GOOGLE_CREDENTIALS_JSON — flat JSON string (st.secrets or env var)
+        2. [google_credentials] — TOML section in st.secrets
+        3. Local JSON file (google_credentials.json)
+        """
+        # Priority 1: JSON string from st.secrets
+        try:
+            import streamlit as st
+            json_str = st.secrets.get("GOOGLE_CREDENTIALS_JSON")
+            if json_str:
+                return json.loads(json_str) if isinstance(json_str, str) else dict(json_str)
+        except Exception:
+            pass
+        # Priority 1b: JSON string from env var
+        json_str = os.getenv("GOOGLE_CREDENTIALS_JSON")
+        if json_str:
             try:
-                with open(self.credentials_file) as f:
-                    return json.load(f)
+                return json.loads(json_str)
             except Exception:
-                return None
-        # Fall back to st.secrets
+                pass
+        # Priority 2: TOML section in st.secrets
         try:
             import streamlit as st
             if "google_credentials" in st.secrets:
                 return dict(st.secrets["google_credentials"])
         except Exception:
             pass
+        # Priority 3: local file
+        creds_path = Path(self.credentials_file)
+        if creds_path.exists():
+            try:
+                with open(creds_path) as f:
+                    return json.load(f)
+            except Exception:
+                return None
         return None
 
     @property

@@ -342,6 +342,24 @@ with col3:
     delta_text = ", ".join(delta_parts) if delta_parts else None
     st.metric("Total rows loaded", len(df), delta=delta_text)
 
+# ---------------------------------------------------------------------------
+# Debug status (config loaded — no sensitive values)
+# ---------------------------------------------------------------------------
+with st.expander("Configuration Status", expanded=False):
+    dcol1, dcol2 = st.columns(2)
+    with dcol1:
+        st.markdown("**Meta Ads**")
+        st.write(f"- META_ACCESS_TOKEN loaded: **{bool(settings.meta_ads.access_token)}**")
+        st.write(f"- META_AD_ACCOUNT_IDS loaded: **{bool(settings.meta_ads.ad_account_ids)}**")
+        st.write(f"- Accounts count: **{len(settings.meta_ads.ad_account_ids)}**")
+        st.write(f"- API version: **{settings.meta_ads.api_version}**")
+    with dcol2:
+        st.markdown("**Google Sheets**")
+        st.write(f"- Credentials loaded: **{bool(settings.google_sheets.credentials_info)}**")
+        st.write(f"- Service account: **{bool(settings.google_sheets.service_account_email)}**")
+        st.write(f"- Spreadsheets configured: **{len(settings.google_sheets.spreadsheet_names)}**")
+        st.write(f"- Header row: **{settings.google_sheets.header_row}**")
+
 st.divider()
 
 if df.empty:
