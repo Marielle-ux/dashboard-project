@@ -16,34 +16,51 @@ load_dotenv(BASE_DIR / ".env")
 
 
 def _get_secret(key: str, default: str = ""):
-    """Read a config value from env vars first, then st.secrets fallback.
+    """Read a config value with priority: st.secrets -> os.getenv -> default.
 
     May return a string, list, or dict depending on the TOML type used
     in Streamlit Cloud secrets.
     """
-    val = os.getenv(key)
-    if val:
-        return val
+    # Priority 1: Streamlit Cloud secrets
     try:
         import streamlit as st
-        return st.secrets.get(key, default)
+        val = st.secrets.get(key)
+        if val is not None:
+            return val
     except Exception:
-        return default
+        pass
+    # Priority 2: environment variables (includes .env via load_dotenv)
+    val = os.getenv(key)
+    if val is not None and val != "":
+        return val
+    # Priority 3: default
+    return default
 
 
-def _parse_comma_list(key: str, fallback_key: str = "") -> list[str]:
-    """Parse a list from env (comma-separated string) or st.secrets (TOML array)."""
+def _parse_comma_list(key: str, fallback_key: str | None = None) -> list[str]:
+    """Parse a list from env (comma-separated string) or st.secrets (TOML array).
+
+    Safely handles None, empty strings, native lists, and comma-separated
+    strings.  Falls back to *fallback_key* when the primary key is absent.
+    """
     raw = _get_secret(key)
-    # st.secrets may return a native list for TOML arrays
+
+    # st.secrets returns native lists for TOML arrays
     if isinstance(raw, (list, tuple)):
         return [str(item).strip() for item in raw if str(item).strip()]
-    if not raw and fallback_key:
-        single = _get_secret(fallback_key)
-        if isinstance(single, (list, tuple)):
-            return [str(item).strip() for item in single if str(item).strip()]
-        return [single] if single else []
-    if not raw:
+
+    # Primary key missing or empty — try fallback
+    if (raw is None or raw == "") and fallback_key:
+        raw = _get_secret(fallback_key)
+        if isinstance(raw, (list, tuple)):
+            return [str(item).strip() for item in raw if str(item).strip()]
+        if raw is None or raw == "":
+            return []
+        return [str(raw).strip()] if str(raw).strip() else []
+
+    if raw is None or raw == "":
         return []
+
     return [item.strip() for item in str(raw).split(",") if item.strip()]
 
 
@@ -55,7 +72,7 @@ class MetaAdsConfig:
     ad_account_ids: list[str] = field(
         default_factory=lambda: _parse_comma_list("META_AD_ACCOUNT_IDS", "META_AD_ACCOUNT_ID")
     )
-    api_version: str = field(default_factory=lambda: _get_secret("META_API_VERSION", "v21.0"))
+    api_version: str = field(default_factory=lambda: str(_get_secret("META_API_VERSION", "v21.0") or "v21.0"))
 
     @property
     def ad_account_id(self) -> str:
