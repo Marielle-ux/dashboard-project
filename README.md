@@ -79,6 +79,13 @@ the TOML below. The app reads everything via `st.secrets`.
 META_ACCESS_TOKEN = "EAAXn3YbFKBY..."
 META_API_VERSION = "v21.0"
 
+# Recommended — when both are set, the dashboard automatically exchanges
+# the access token for a fresh long-lived (~60-day) one when it is within
+# 7 days of expiry. Without these, tokens still work but must be rotated
+# manually in Meta Business Suite.
+# META_APP_ID = "1234567890"
+# META_APP_SECRET = "abcdef0123456789abcdef0123456789"
+
 # Ad account IDs — TOML array (Streamlit native list format)
 META_AD_ACCOUNT_IDS = [
   "act_844229314275496",

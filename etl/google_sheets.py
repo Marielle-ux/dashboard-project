@@ -151,7 +151,7 @@ def check_connection_status() -> tuple[str, str]:
     """
     cfg = settings.google_sheets
     if not cfg.is_configured:
-        return "Not configured", "Add google_credentials.json to enable"
+        return "Not configured", "Set GOOGLE_CREDENTIALS_JSON in Streamlit Secrets"
 
     def _probe() -> tuple[str, str]:
         client = _get_client()
@@ -169,7 +169,10 @@ def check_connection_status() -> tuple[str, str]:
         return "Invalid credentials", str(exc)
     except FileNotFoundError:
         logger.error("Credentials file not found at %s", cfg.credentials_file)
-        return "Invalid credentials", "Credentials file not found"
+        return (
+            "Invalid credentials",
+            "No credentials found — set GOOGLE_CREDENTIALS_JSON in Streamlit Secrets",
+        )
     except (ConnectionError, TimeoutError, OSError) as exc:
         logger.error("Network error during connection check: %s", exc)
         return "Connection error", f"Network error: {exc}"
