@@ -71,38 +71,58 @@ The app will be live at a permanent URL like `https://your-app.streamlit.app`.
 
 ### Secrets (required for full functionality)
 
-In the Streamlit Cloud dashboard, go to **Settings → Secrets** and paste:
+In the Streamlit Cloud dashboard, go to **Settings → Secrets** and paste
+the TOML below. The app reads everything via `st.secrets`.
 
 ```toml
 # Meta Ads API
 META_ACCESS_TOKEN = "EAAXn3YbFKBY..."
-META_AD_ACCOUNT_IDS = "act_844229314275496,act_719853653795521,act_2342025859327675"
 META_API_VERSION = "v21.0"
 
-# Google Sheets
-GOOGLE_SPREADSHEET_NAMES = "Sheet Name 1,Sheet Name 2,Sheet Name 3"
+# Ad account IDs — TOML array (Streamlit native list format)
+META_AD_ACCOUNT_IDS = [
+  "act_844229314275496",
+  "act_719853653795521",
+  "act_2342025859327675",
+]
+
+# Google Sheets — TOML array of spreadsheet titles to auto-load
+GOOGLE_SPREADSHEET_NAMES = [
+  "Sheet Name 1",
+  "Sheet Name 2",
+  "Sheet Name 3",
+]
 GOOGLE_HEADER_ROW = "3"
 
-# Google Service Account credentials (paste the FULL JSON key contents)
-[google_credentials]
-type = "service_account"
-project_id = "your-project-id"
-private_key_id = "your-key-id"
-private_key = "-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
-client_email = "your-sa@your-project.iam.gserviceaccount.com"
-client_id = "123456789"
-auth_uri = "https://accounts.google.com/o/oauth2/auth"
-token_uri = "https://oauth2.googleapis.com/token"
-auth_provider_x509_cert_url = "https://www.googleapis.com/oauth2/v1/certs"
-client_x509_cert_url = "https://www.googleapis.com/robot/v1/metadata/x509/..."
-universe_domain = "googleapis.com"
+# Google Service Account credentials — paste the FULL JSON key as a
+# single string. Triple quotes preserve newlines inside private_key.
+GOOGLE_CREDENTIALS_JSON = """
+{
+  "type": "service_account",
+  "project_id": "your-project-id",
+  "private_key_id": "your-key-id",
+  "private_key": "-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n",
+  "client_email": "your-sa@your-project.iam.gserviceaccount.com",
+  "client_id": "123456789",
+  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+  "token_uri": "https://oauth2.googleapis.com/token",
+  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+  "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/...",
+  "universe_domain": "googleapis.com"
+}
+"""
 ```
+
+A `[google_credentials]` TOML table is still supported as an
+alternative to `GOOGLE_CREDENTIALS_JSON` — provide exactly one.
 
 See `.streamlit/secrets.toml.example` for a complete template.
 
 The app works without secrets — Meta Ads and Google Sheets sections
 will show "Not configured" and all other features (upload, city data,
-charts, filters, export) work normally.
+charts, filters, export) work normally. A **Configuration / Debug**
+expander in the sidebar shows which secrets were loaded
+(True/False only — no values are exposed).
 
 ### Data persistence on Streamlit Cloud
 
@@ -123,13 +143,16 @@ See `.env.example` for the full list.
 1. Create an app at <https://developers.facebook.com/apps/>.
 2. Add the **Marketing API** product.
 3. Generate a long-lived access token with `ads_read` permission.
-4. Set `META_ACCESS_TOKEN` and `META_AD_ACCOUNT_ID` in `.env` or Streamlit secrets.
+4. Set `META_ACCESS_TOKEN` and `META_AD_ACCOUNT_IDS` (comma-separated locally,
+   TOML array in Streamlit secrets) in `.env` or Streamlit secrets.
 
 ### Google Sheets
 
 1. Create a **Service Account** in Google Cloud Console.
 2. Enable the **Google Sheets API** and **Google Drive API**.
-3. Download the JSON key and place it as `google_credentials.json` (or set `GOOGLE_CREDENTIALS_FILE`).
+3. Download the JSON key. Locally, place it as `google_credentials.json` (or
+   set `GOOGLE_CREDENTIALS_FILE`). On Streamlit Cloud, paste the entire JSON
+   contents into the `GOOGLE_CREDENTIALS_JSON` secret.
 4. Share each spreadsheet with the service account email (found in the JSON as `client_email`).
 5. Set `GOOGLE_SPREADSHEET_NAMES` in `.env` — comma-separated list of spreadsheet titles to auto-load.
 
