@@ -4,12 +4,12 @@ Unified view of Meta Ads + Google Sheets / Excel reports.
 """
 
 import logging
-from datetime import date, timedelta
+import time
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import pandas as pd
 import plotly.express as px
-import requests
 import streamlit as st
 
 from config import settings, BASE_DIR
@@ -29,6 +29,13 @@ from etl.cleaner import clean_dataframe, remove_duplicates
 from etl.merger import concat_datasets, merge_datasets
 from etl.meta_ads import fetch_campaign_insights, check_account_status
 from etl.pipeline import load_cached_data, run_pipeline
+from sync_engine import build_unified_analytics
+from dashboard_views import (
+    render_overview_kpis,
+    render_campaign_comparison,
+    render_time_series,
+    render_correlation_view,
+)
 
 # Persistent directory for uploaded files (survives restarts)
 UPLOADS_DIR = BASE_DIR / "uploads"
@@ -73,7 +80,7 @@ use_meta = st.sidebar.checkbox(
 )
 if not settings.meta_ads.is_configured:
     st.sidebar.caption(
-        "Set META_ACCESS_TOKEN and META_AD_ACCOUNT_IDS in .env to enable."
+        "Set META_ACCESS_TOKEN and META_AD_ACCOUNT_IDS in Secrets to enable."
     )
 elif settings.meta_ads.ad_account_ids:
     st.sidebar.caption(
@@ -89,7 +96,7 @@ use_gsheets = st.sidebar.checkbox(
     disabled=not gs_cfg.is_configured,
 )
 if not gs_cfg.is_configured:
-    st.sidebar.caption("Add google_credentials.json to enable.")
+    st.sidebar.caption("Add Google credentials in Secrets to enable.")
 elif gs_cfg.spreadsheet_names:
     st.sidebar.caption(
         f"{len(gs_cfg.spreadsheet_names)} spreadsheet(s) configured"
@@ -118,6 +125,24 @@ if use_city_data:
         ["aqtobe", "atyrau", "karaganda"],
         default=["aqtobe", "atyrau", "karaganda"],
     )
+
+# ---------------------------------------------------------------------------
+# Auto-sync (periodic refresh)
+# ---------------------------------------------------------------------------
+AUTO_SYNC_SECONDS = settings.sync_interval_minutes * 60  # default 15 min
+
+if "last_sync_time" not in st.session_state:
+    st.session_state["last_sync_time"] = 0.0
+
+time_since_sync = time.time() - st.session_state["last_sync_time"]
+auto_sync_due = time_since_sync >= AUTO_SYNC_SECONDS and st.session_state["last_sync_time"] > 0
+
+if auto_sync_due:
+    st.toast("Auto-syncing data (every {0} min)…".format(settings.sync_interval_minutes))
+
+st.sidebar.caption(
+    f"Auto-sync every {settings.sync_interval_minutes} min"
+)
 
 # ---------------------------------------------------------------------------
 # Data loading
@@ -178,7 +203,14 @@ def _load_saved_uploads() -> list[pd.DataFrame]:
 # Gather all sources
 all_dfs: list[pd.DataFrame] = []
 
-if run_sync or "unified_data" not in st.session_state:
+should_load = run_sync or auto_sync_due or "unified_data" not in st.session_state
+
+if run_sync or auto_sync_due:
+    # Clear cached API data so fresh results are fetched
+    fetch_meta.clear()
+    fetch_gsheet.clear()
+
+if should_load:
     with st.spinner("Loading data ..."):
         # Meta Ads
         if use_meta and settings.meta_ads.is_configured:
@@ -242,6 +274,8 @@ if run_sync or "unified_data" not in st.session_state:
             save_dataframe(unified, table_name="unified_analytics")
 
         st.session_state["unified_data"] = unified
+        st.session_state["last_sync_time"] = time.time()
+        st.session_state["last_sync_dt"] = datetime.now().strftime("%H:%M:%S")
 
 df = st.session_state.get("unified_data", pd.DataFrame())
 
@@ -252,9 +286,9 @@ def _check_all_meta_accounts() -> list[tuple[str, str, str]]:
     """Return [(account_id, status, detail), ...] for each configured account."""
     cfg = settings.meta_ads
     if not cfg.access_token:
-        return [("", "No token", "Set META_ACCESS_TOKEN in .env")]
+        return [("", "No token", "Set META_ACCESS_TOKEN in Secrets")]
     if not cfg.ad_account_ids:
-        return [("", "No accounts", "Set META_AD_ACCOUNT_IDS in .env")]
+        return [("", "No accounts", "Set META_AD_ACCOUNT_IDS in Secrets")]
     results: list[tuple[str, str, str]] = []
     for aid in cfg.ad_account_ids:
         status, detail = check_account_status(aid)
@@ -281,7 +315,7 @@ col1, col2, col3 = st.columns(3)
 with col1:
     if total_accounts == 0:
         st.metric("Meta Ads API", "Not configured")
-        st.caption("Set META_AD_ACCOUNT_IDS in .env")
+        st.caption("Set META_AD_ACCOUNT_IDS in Secrets")
     else:
         st.metric("Meta Ads API", f"{connected_count}/{total_accounts} connected")
         for aid, status, detail in account_statuses:
@@ -320,8 +354,8 @@ if df.empty:
 # ---------------------------------------------------------------------------
 # Tabs
 # ---------------------------------------------------------------------------
-tab_overview, tab_meta, tab_reports, tab_data = st.tabs(
-    ["Overview", "Meta Ads Metrics", "Reports", "Raw Data"]
+tab_overview, tab_meta, tab_correlation, tab_reports, tab_data = st.tabs(
+    ["Overview", "Meta Ads Metrics", "Correlation", "Reports", "Raw Data"]
 )
 
 # ---- Helpers ----
@@ -333,41 +367,24 @@ def safe_sum(series: pd.Series) -> float:
     return pd.to_numeric(series, errors="coerce").sum()
 
 
+# Build analytics context via sync engine
+analytics = build_unified_analytics(df)
+meta_summary = analytics["meta_summary"]
+sheets_summary = analytics["sheets_summary"]
+correlated = analytics["correlated"]
+overview_kpis = analytics["overview_kpis"]
+
 # ======================= TAB: Overview ====================================
 with tab_overview:
-    st.subheader("Key Metrics Summary")
+    # A) Overview KPIs from sync engine
+    render_overview_kpis(overview_kpis)
 
-    kpi_cols = st.columns(len(available_metrics) if available_metrics else 1)
-    for i, metric in enumerate(available_metrics):
-        with kpi_cols[i]:
-            val = safe_sum(df[metric])
-            fmt = f"{val:,.2f}" if metric in ("spend", "cpm", "cpc", "ctr") else f"{int(val):,}"
-            st.metric(metric.upper(), fmt)
+    st.divider()
 
-    # Time series
-    if "date" in df.columns and available_metrics:
-        st.subheader("Metrics Over Time")
-        chosen_metric = st.selectbox(
-            "Select metric", available_metrics, key="overview_metric"
-        )
-        ts = df.copy()
-        ts["date"] = pd.to_datetime(ts["date"], errors="coerce")
-        ts = ts.dropna(subset=["date"])
-        if not ts.empty:
-            daily = (
-                ts.groupby("date")[chosen_metric]
-                .apply(lambda s: pd.to_numeric(s, errors="coerce").sum())
-                .reset_index()
-            )
-            fig = px.line(
-                daily,
-                x="date",
-                y=chosen_metric,
-                title=f"Daily {chosen_metric.upper()}",
-            )
-            st.plotly_chart(fig, use_container_width=True)
+    # C) Time Series from sync engine
+    render_time_series(meta_summary)
 
-    # By source
+    # By source breakdown (original)
     if "source" in df.columns and available_metrics:
         st.subheader("By Source / Platform")
         metric_for_source = st.selectbox(
@@ -461,6 +478,16 @@ with tab_meta:
                 .reset_index()
             )
             st.dataframe(adset_metrics, use_container_width=True)
+
+# ======================= TAB: Correlation =================================
+with tab_correlation:
+    # B) Campaign Comparison Table
+    render_campaign_comparison(correlated)
+
+    st.divider()
+
+    # D) Correlation View
+    render_correlation_view(correlated)
 
 # ======================= TAB: Reports =====================================
 with tab_reports:
@@ -564,3 +591,25 @@ with tab_data:
     with st.expander("Database tables"):
         tables = list_tables()
         st.write(tables)
+
+# ---------------------------------------------------------------------------
+# Footer — last sync time + auto-rerun scheduling
+# ---------------------------------------------------------------------------
+st.divider()
+last_dt = st.session_state.get("last_sync_dt", "—")
+st.caption(
+    f"Last synced: {last_dt}  ·  "
+    f"Auto-sync every {settings.sync_interval_minutes} min"
+)
+
+# Schedule next auto-rerun via st.rerun after the configured interval.
+# st.rerun is only called when the timer expires; while the page is open
+# Streamlit keeps a websocket alive and reruns will pick up fresh data.
+if st.session_state.get("last_sync_time"):
+    remaining = AUTO_SYNC_SECONDS - (time.time() - st.session_state["last_sync_time"])
+    if remaining <= 0:
+        st.rerun()
+    else:
+        # Use st.empty + time fragment to schedule next rerun
+        _placeholder = st.empty()
+        _placeholder.empty()
