@@ -56,6 +56,59 @@ st.set_page_config(
 st.title("Marketing Analytics Dashboard")
 
 # ---------------------------------------------------------------------------
+# Sidebar – configuration debug panel
+# ---------------------------------------------------------------------------
+def _render_config_debug() -> None:
+    """Render a non-sensitive True/False status of loaded configuration.
+
+    Only booleans are exposed — never the secret values themselves.
+    """
+    cfg_status = settings.status()
+    meta = cfg_status["meta"]
+    gs = cfg_status["google_sheets"]
+
+    with st.sidebar.expander("Configuration / Debug", expanded=False):
+        st.caption("Loaded configuration (True/False only — no secret values shown)")
+
+        st.markdown("**Streamlit secrets**")
+        st.write({"secrets_file_available": cfg_status["secrets_file_available"]})
+
+        st.markdown("**Meta Ads**")
+        st.write(
+            {
+                "META_ACCESS_TOKEN loaded": meta["META_ACCESS_TOKEN"],
+                "META_AD_ACCOUNT_IDS loaded": meta["META_AD_ACCOUNT_IDS"],
+                "configured": meta["configured"],
+            }
+        )
+
+        st.markdown("**Google Sheets**")
+        st.write(
+            {
+                "GOOGLE_CREDENTIALS_JSON loaded": gs["GOOGLE_CREDENTIALS_JSON"],
+                "[google_credentials] table loaded": gs["google_credentials_table"],
+                "credentials file present": gs["credentials_file_present"],
+                "credentials parsed OK": gs["credentials_parsed"],
+                "GOOGLE_SPREADSHEET_NAMES loaded": gs["GOOGLE_SPREADSHEET_NAMES"],
+                "configured": gs["configured"],
+            }
+        )
+
+        if not meta["configured"]:
+            st.caption(
+                "To enable Meta Ads, add `META_ACCESS_TOKEN` and "
+                "`META_AD_ACCOUNT_IDS` to Streamlit Secrets."
+            )
+        if not gs["configured"]:
+            st.caption(
+                "To enable Google Sheets, add `GOOGLE_CREDENTIALS_JSON` "
+                "(service-account JSON as a string) to Streamlit Secrets."
+            )
+
+
+_render_config_debug()
+
+# ---------------------------------------------------------------------------
 # Sidebar – data source controls
 # ---------------------------------------------------------------------------
 st.sidebar.header("Data Sources")
