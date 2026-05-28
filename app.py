@@ -29,6 +29,13 @@ from etl.cleaner import clean_dataframe, remove_duplicates
 from etl.merger import concat_datasets, merge_datasets
 from etl.meta_ads import fetch_campaign_insights, check_account_status
 from etl.pipeline import load_cached_data, run_pipeline
+from sync_engine import build_unified_analytics
+from dashboard_views import (
+    render_overview_kpis,
+    render_campaign_comparison,
+    render_time_series,
+    render_correlation_view,
+)
 
 # Persistent directory for uploaded files (survives restarts)
 UPLOADS_DIR = BASE_DIR / "uploads"
@@ -347,8 +354,8 @@ if df.empty:
 # ---------------------------------------------------------------------------
 # Tabs
 # ---------------------------------------------------------------------------
-tab_overview, tab_meta, tab_reports, tab_data = st.tabs(
-    ["Overview", "Meta Ads Metrics", "Reports", "Raw Data"]
+tab_overview, tab_meta, tab_correlation, tab_reports, tab_data = st.tabs(
+    ["Overview", "Meta Ads Metrics", "Correlation", "Reports", "Raw Data"]
 )
 
 # ---- Helpers ----
@@ -360,41 +367,24 @@ def safe_sum(series: pd.Series) -> float:
     return pd.to_numeric(series, errors="coerce").sum()
 
 
+# Build analytics context via sync engine
+analytics = build_unified_analytics(df)
+meta_summary = analytics["meta_summary"]
+sheets_summary = analytics["sheets_summary"]
+correlated = analytics["correlated"]
+overview_kpis = analytics["overview_kpis"]
+
 # ======================= TAB: Overview ====================================
 with tab_overview:
-    st.subheader("Key Metrics Summary")
+    # A) Overview KPIs from sync engine
+    render_overview_kpis(overview_kpis)
 
-    kpi_cols = st.columns(len(available_metrics) if available_metrics else 1)
-    for i, metric in enumerate(available_metrics):
-        with kpi_cols[i]:
-            val = safe_sum(df[metric])
-            fmt = f"{val:,.2f}" if metric in ("spend", "cpm", "cpc", "ctr") else f"{int(val):,}"
-            st.metric(metric.upper(), fmt)
+    st.divider()
 
-    # Time series
-    if "date" in df.columns and available_metrics:
-        st.subheader("Metrics Over Time")
-        chosen_metric = st.selectbox(
-            "Select metric", available_metrics, key="overview_metric"
-        )
-        ts = df.copy()
-        ts["date"] = pd.to_datetime(ts["date"], errors="coerce")
-        ts = ts.dropna(subset=["date"])
-        if not ts.empty:
-            daily = (
-                ts.groupby("date")[chosen_metric]
-                .apply(lambda s: pd.to_numeric(s, errors="coerce").sum())
-                .reset_index()
-            )
-            fig = px.line(
-                daily,
-                x="date",
-                y=chosen_metric,
-                title=f"Daily {chosen_metric.upper()}",
-            )
-            st.plotly_chart(fig, use_container_width=True)
+    # C) Time Series from sync engine
+    render_time_series(meta_summary)
 
-    # By source
+    # By source breakdown (original)
     if "source" in df.columns and available_metrics:
         st.subheader("By Source / Platform")
         metric_for_source = st.selectbox(
@@ -488,6 +478,16 @@ with tab_meta:
                 .reset_index()
             )
             st.dataframe(adset_metrics, use_container_width=True)
+
+# ======================= TAB: Correlation =================================
+with tab_correlation:
+    # B) Campaign Comparison Table
+    render_campaign_comparison(correlated)
+
+    st.divider()
+
+    # D) Correlation View
+    render_correlation_view(correlated)
 
 # ======================= TAB: Reports =====================================
 with tab_reports:
