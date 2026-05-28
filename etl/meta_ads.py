@@ -13,6 +13,7 @@ import pandas as pd
 import requests
 
 from config import settings
+from etl.meta_token import get_access_token
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +57,7 @@ def _build_url(endpoint: str) -> str:
 
 
 def _default_params() -> dict:
-    return {"access_token": settings.meta_ads.access_token}
+    return {"access_token": get_access_token()}
 
 
 def _normalize_account_id(raw: str) -> str:
@@ -103,7 +104,7 @@ def check_account_status(account_id: str) -> tuple[str, str]:
     try:
         r = requests.get(
             f"{API_BASE}/{cfg.api_version}/{aid}",
-            params={"access_token": cfg.access_token, "fields": "name,account_status"},
+            params={"access_token": get_access_token(), "fields": "name,account_status"},
             timeout=15,
         )
         data = r.json()

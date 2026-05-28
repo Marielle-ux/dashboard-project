@@ -28,6 +28,7 @@ from etl.normalizer import (
 from etl.cleaner import clean_dataframe, remove_duplicates
 from etl.merger import concat_datasets, merge_datasets
 from etl.meta_ads import fetch_campaign_insights, check_account_status
+from etl.meta_token import token_info
 from etl.pipeline import load_cached_data, run_pipeline
 from sync_engine import build_unified_analytics
 from dashboard_views import (
@@ -83,6 +84,37 @@ def _render_config_debug() -> None:
                 "configured": meta["configured"],
             }
         )
+
+        if meta["META_ACCESS_TOKEN"]:
+            info = token_info()
+            if info.expires_at:
+                expires_dt = datetime.fromtimestamp(info.expires_at)
+                seconds_left = info.expires_at - time.time()
+                if seconds_left > 0:
+                    days = int(seconds_left // 86400)
+                    hours = int((seconds_left % 86400) // 3600)
+                    remaining = f"{days}d {hours}h"
+                else:
+                    remaining = "expired"
+                token_status = {
+                    "expires_at": expires_dt.strftime("%Y-%m-%d %H:%M UTC"),
+                    "time remaining": remaining,
+                    "auto-refreshed this run": info.refreshed,
+                }
+            elif info.expires_at == 0:
+                token_status = {
+                    "expires_at": "never (system-user token)",
+                    "auto-refreshed this run": info.refreshed,
+                }
+            else:
+                token_status = {
+                    "expires_at": "unknown",
+                    "auto-refreshed this run": info.refreshed,
+                }
+            if info.error:
+                token_status["last error"] = info.error
+            st.caption("Token lifecycle")
+            st.write(token_status)
 
         st.markdown("**Google Sheets**")
         st.write(
